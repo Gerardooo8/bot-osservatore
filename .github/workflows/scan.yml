@@ -1,0 +1,29 @@
+name: Scansione Mercati
+
+on:
+  schedule:
+    # Esegue ogni 15 minuti dal lunedì al venerdì (orario UTC)
+    - cron: '*/15 * * * 1-5'
+  workflow_dispatch: # Ti permette di avviarlo anche manualmente con un clic per testarlo
+
+jobs:
+  analizza:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scarica codice
+        uses: actions/checkout@v4
+
+      - name: Configura Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Installa librerie
+        run: pip install yfinance pandas numpy requests
+
+      - name: Esegui osservatore
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python osservatore.py
