@@ -136,11 +136,14 @@ def invia_telegram(messaggio):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
-        "text": messaggio,
-        "parse_mode": "Markdown"
+        "text": messaggio
     }
-    requests.post(url, json=payload, timeout=10)
-
+    risposta = requests.post(url, json=payload, timeout=10)
+    if risposta.status_code != 200:
+        print(f"ERRORE TELEGRAM ({risposta.status_code}): {risposta.text}")
+    else:
+        print("Conferma Telegram: messaggio consegnato con successo!")
+        
 def esegui_scansione():
     ora_it = datetime.now(FUSO_ITALIA)
     oggi_str = ora_it.strftime("%Y-%m-%d")
