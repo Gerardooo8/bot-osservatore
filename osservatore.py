@@ -4,7 +4,8 @@ import requests
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 # Legge le chiavi in sicurezza dai GitHub Secrets
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
@@ -20,6 +21,18 @@ WATCHLIST = {
 }
 
 TIMEFRAME = "15m"
+FILE_STORICO = "storico_giorno.json"
+FUSO_ITALIA = ZoneInfo("Europe/Rome")
+
+def carica_storico():
+    if os.path.exists(FILE_STORICO):
+        with open(FILE_STORICO, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {"data": "", "buongiorno_inviato": False, "chiusura_inviata": False, "segnali": []}
+
+def salva_storico(dati):
+    with open(FILE_STORICO, "w", encoding="utf-8") as f:
+        json.dump(dati, f, indent=2, ensure_ascii=False)
 
 def analizza_dati(ticker):
     df = yf.download(ticker, period="5d", interval=TIMEFRAME, progress=False)
@@ -104,12 +117,31 @@ def invia_telegram(messaggio):
     requests.post(url, json=payload, timeout=10)
 
 def esegui_scansione():
-    print(f"--- Scansione Cloud delle {datetime.now().strftime('%H:%M:%S')} UTC ---")
+    ora_it = datetime.now(FUSO_ITALIA)
+    oggi_str = ora_it.strftime("%Y-%m-%d")
+    ora_str = ora_it.strftime("%H:%M")
+    
+    print(f"--- Scansione delle {ora_str} (Ora Italiana) ---")
+    
+    storico = carica_storico()
+    # Se è un nuovo giorno, resetta il registro
+    if storico.get("data") != oggi_str:
+        storico = {
+            "data": oggi_str,
+            "buongiorno_inviato": False,
+            "chiusura_inviata": False,
+            "segnali": []
+        }
+
+    riepilogo_prezzi = []
+
     for nome, ticker in WATCHLIST.items():
         dati = analizza_dati(ticker)
         if not dati:
             print(f"{nome}: Dati non disponibili.")
             continue
+
+        riepilogo_prezzi.append(f"• {nome}: `{dati['prezzo']}` (RSI: {dati['rsi_attuale']})")
 
         possibile_long = dati['prezzo'] > dati['ema200'] and dati['rsi_attuale'] < 42 and dati['rsi_attuale'] > dati['rsi_precedente']
         possibile_short = dati['prezzo'] < dati['ema200'] and dati['rsi_attuale'] > 58 and dati['rsi_attuale'] < dati['rsi_precedente']
@@ -128,11 +160,44 @@ def esegui_scansione():
                     f"⚠️ _Applica la distanza al prezzo attuale su XTrend Lite._"
                 )
                 invia_telegram(msg)
+                storico["segnali"].append(f"{ora_str} — {segnale['azione']} {nome} @ {dati['prezzo']}")
                 print(f"Segnale inviato su Telegram per {nome}!")
             else:
                 print(f"{nome}: Scartato da Gemini (NO_TRADE).")
         else:
             print(f"{nome}: Nessun setup (Prezzo: {dati['prezzo']} | EMA200: {dati['ema200']} | RSI: {dati['rsi_attuale']})")
+
+    # 1. MESSAGGIO DI APERTURA (dalle 08:00 in poi, una volta al giorno)
+    if ora_it.hour >= 8 and not storico["buongiorno_inviato"]:
+        testo_prezzi = "\n".join(riepilogo_prezzi)
+        msg_apertura = (
+            f"☀️ *Mercati aperti, sono operativo!*\n"
+            f"Sto monitorando i tuoi 5 asset su timeframe 15m e sono pronto a segnalarti eventuali ingressi:\n\n"
+            f"{testo_prezzi}"
+        )
+        invia_telegram(msg_apertura)
+        storico["buongiorno_inviato"] = True
+        print("Messaggio di apertura inviato!")
+
+    # 2. MESSAGGIO DI CHIUSURA (dalle 22:00 in poi, una volta al giorno)
+    if ora_it.hour >= 22 and not storico["chiusura_inviata"]:
+        totale = len(storico["segnali"])
+        if totale == 0:
+            dettaglio = "Nessun segnale inviato oggi: il mercato non ha offerto setup puliti secondo le nostre regole."
+        else:
+            lista = "\n".join([f"• {s}" for s in storico["segnali"]])
+            dettaglio = f"Abbiamo individuato *{totale} operazioni*:\n{lista}"
+            
+        msg_chiusura = (
+            f"🌙 *Giornata conclusa, mercati in chiusura.*\n\n"
+            f"{dettaglio}\n\n"
+            f"A domani mattina alle 08:00!"
+        )
+        invia_telegram(msg_chiusura)
+        storico["chiusura_inviata"] = True
+        print("Messaggio di chiusura inviato!")
+
+    salva_storico(storico)
 
 if __name__ == "__main__":
     esegui_scansione()
