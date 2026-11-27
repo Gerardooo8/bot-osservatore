@@ -2,9 +2,11 @@ name: Scansione Mercati
 
 on:
   schedule:
-    # Esegue ogni 15 minuti dal lunedì al venerdì (orario UTC)
     - cron: '*/15 * * * 1-5'
-  workflow_dispatch: # Ti permette di avviarlo anche manualmente con un clic per testarlo
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   analizza:
@@ -27,3 +29,11 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python osservatore.py
+
+      - name: Salva registro giornaliero
+        run: |
+          git config --local user.email "bot@github.com"
+          git config --local user.name "Bot Osservatore"
+          git add storico_giorno.json
+          git diff --quiet && git diff --staged --quiet || git commit -m "Aggiorna registro giornaliero"
+          git push
